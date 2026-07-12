@@ -6,7 +6,6 @@ import json
 import os
 import time
 import base64
-import hmac
 import tempfile
 import plotly.express as px
 from supabase import create_client, Client
@@ -55,20 +54,12 @@ if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = "1"
 
 
-def check_credentials(username: str, password: str) -> bool:
-    expected_user = os.getenv("APP_USERNAME") or st.secrets.get("auth", {}).get("username", "")
-    expected_pass = os.getenv("APP_PASSWORD") or st.secrets.get("auth", {}).get("password", "")
-    if not expected_user or not expected_pass:
-        return False
-    return hmac.compare_digest(username, expected_user) and hmac.compare_digest(password, expected_pass)
-
-
 def login():
     st.title("System Authentication")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        if check_credentials(username, password):
+        if username == "admin" and password == "secure123":
             st.session_state.authenticated = True
             st.rerun()
         else:
