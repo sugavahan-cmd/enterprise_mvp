@@ -18,5 +18,5 @@ def save_invoice_to_db(vendor, inv_number, total, date, filename):
         "pdf_filename": filename
     }
     
-    response = supabase.table("invoices").insert(data).execute()
+    response = supabase.table("invoice_records").insert(data).execute()
     return response

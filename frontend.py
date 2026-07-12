@@ -12,7 +12,13 @@ import supabase
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-DB_PATH = os.path.join(BASE_DIR, "invoices.db")
+import streamlit as st
+from supabase import create_client, Client
+
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.set_page_config(page_title="Enterprise Data Extractor", layout="wide")
 
 
@@ -127,11 +133,24 @@ with tab1:
 
 with tab2:
     try:
-        conn = sqlite3.connect(DB_PATH, timeout=20) 
-        df_flagged = pd.read_sql_query(
-            "SELECT id, audit_reason, raw_data, file_path FROM invoice_records WHERE status IN ('Requires Review', 'Failed')", 
-            conn
-        )
+    # Fetch data from Supabase instead of SQLite
+        response = (
+        supabase.table("invoice_records")
+        .select("id, audit_reason, raw_data, file_path")
+        .in_("status", ["Requires Review", "Failed"])
+        .execute()
+    )
+    
+    # Convert the returned list of rows directly into a Pandas DataFrame
+        df_flagged = pd.DataFrame(response.data)
+    
+    # Handle case where no records match to prevent DataFrame empty errors
+        if df_flagged.empty:
+            df_flagged = pd.DataFrame(columns=["id", "audit_reason", "raw_data", "file_path"])
+
+    except Exception as e:
+        st.error(f"Error fetching flagged invoices: {e}")
+        df_flagged = pd.DataFrame(columns=["id", "audit_reason", "raw_data", "file_path"])
         
         if df_flagged.empty:
             st.success("The queue is empty. No anomalies detected.")
@@ -179,7 +198,6 @@ with tab2:
                         if res.status_code == 200:
                             st.rerun()
                             
-        conn.close()
     except sqlite3.OperationalError:
         st.warning("Database is currently busy processing the swarm. Please wait a moment...")
     except Exception as e:
@@ -190,24 +208,28 @@ with tab3:
         st.rerun()
         
     try:
-        conn = sqlite3.connect(DB_PATH)
-        # Pull everything
-        df_all = pd.read_sql_query("SELECT * FROM invoice_records", conn)
-        
-        # Clean: Drop rows where vendor_name is empty/None to fix the "None" bug
+        response = supabase.table("invoice_records").select("*").execute()
+        df_all = pd.DataFrame(response.data)
+    
+        if df_all.empty:
+            df_all = pd.DataFrame(columns=['status', 'vendor_name', 'total_amount'])
+
         df_clean = df_all[(df_all['status'] == 'Approved') & (df_all['vendor_name'].notnull()) & (df_all['vendor_name'] != '')]
         df_pending = df_all[df_all['status'] == 'Processing']
         df_flagged = df_all[df_all['status'] == 'Requires Review']
-        
-        # Updated Metrics using the cleaned dataframe
+    
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Approved", len(df_clean))
         col2.metric("Processing", len(df_pending))
         col3.metric("Flagged", len(df_flagged))
+    
         total_cap = df_clean['total_amount'].sum() if not df_clean.empty else 0.0
         col4.metric("Capital Processed", f"₹{total_cap:,.2f}")
 
         st.divider()
+
+    except Exception as e:
+        st.error(f"Error loading dashboard metrics: {e}")
         
         if not df_clean.empty:
             col_chart1, col_chart2 = st.columns([1, 1])
@@ -233,6 +255,6 @@ with tab3:
         else:
             st.info("No valid approved records to visualize.")
             
-        conn.close()
+        
     except Exception as e:
         st.error(f"Dashboard Error: {e}")
