@@ -6,3 +6,4 @@ python-dotenv
 groq
 httpx
 pypdf2
+plotly
