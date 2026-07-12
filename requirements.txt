@@ -1,0 +1,7 @@
+streamlit
+supabase
+fastapi
+uvicorn
+python-dotenv
+groq
+httpx
