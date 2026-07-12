@@ -125,16 +125,13 @@ with tab1:
                     pdf_reader = PyPDF2.PdfReader(uploaded_file)
                     extracted_text = ""
                     for page in pdf_reader.pages:
-                        # BUG FIX: extract_text() can return None for scanned pages
-                        extracted_text += page.extract_text() or ""
-
-                    if not extracted_text.strip():
-                        st.warning(f"{uploaded_file.name}: no extractable text found (likely scanned).")
-
+                        extracted_text += page.extract_text()
+                    
                     payload = {"raw_text": extracted_text, "file_path": file_name}
-                    requests.post(f"{BACKEND_URL}/api/extract_async", json=payload, timeout=10)
+                    api_url = st.secrets.get("API_URL", "http://127.0.0.1:8000")
+                    requests.post(f"{api_url}/api/extract_async", json=payload)
                 except Exception as e:
-                    st.error(f"Failed to queue {uploaded_file.name}: {e}")
+                    st.error(f"Failed to queue {uploaded_file.name}")
 
                 progress_bar.progress((i + 1) / len(uploaded_files))
 
