@@ -2,9 +2,15 @@ import streamlit as st
 import pandas as pd
 import os
 import tempfile
+import plotly.express as px
+import requests
+import PyPDF2
+import time
 from supabase import create_client, Client
 
-# --- 1. PROFESSIONAL UI CONFIGURATION ---
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = "1"
+
 st.set_page_config(
     page_title="Automated Invoice Processing Swarm", 
     page_icon="🏢",
@@ -12,22 +18,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CUSTOM CSS INJECTION ---
 st.markdown("""
     <style>
-    /* Hide Streamlit default headers and footers for a white-label look */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Professional Header Styling */
     h1 {
         color: #0f4c81;
         font-family: 'Helvetica Neue', sans-serif;
         padding-bottom: 20px;
     }
     
-    /* Custom Button Styling */
     .stButton>button {
         background-color: #0f4c81;
         color: white;
@@ -42,7 +44,6 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     
-    /* Metric Card Styling */
     div[data-testid="metric-container"] {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
@@ -54,58 +55,62 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. DATABASE INITIALIZATION ---
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- 4. MAIN INTERFACE ---
 col1, col2 = st.columns([8, 1])
 with col1:
     st.title("Automated Invoice Processing Swarm")
 with col2:
-    st.write("") # Spacing
+    st.write("")
     if st.button("Logout"):
         st.success("Logged out successfully.")
 
 tab1, tab2, tab3 = st.tabs(["📤 Upload & Process", "⚠️ Human Review Queue", "📊 Executive Analytics"])
 
-# --- TAB 1: UPLOAD ---
 with tab1:
-    st.markdown("### Secure Document Upload")
-    uploaded_file = st.file_uploader("Upload PDF Invoice", type=["pdf"], label_visibility="collapsed")
+    st.write("Upload PDF invoices to extract, vault, and route financial data asynchronously.")
     
-    if uploaded_file is not None:
-        if st.button("Process Invoice"):
-            with st.spinner("Encrypting and transmitting to Swarm..."):
-                file_bytes = uploaded_file.read()
-                file_name = uploaded_file.name
+    uploaded_files = st.file_uploader("Drag and drop PDFs here (Max 15 files per batch)", type=["pdf"], accept_multiple_files=True, key=st.session_state.uploader_key)
+
+    if uploaded_files and len(uploaded_files) > 15:
+        st.error("Batch limit exceeded. Please upload a maximum of 15 invoices at a time.")
+    
+    elif uploaded_files:
+        if st.button("Process Batch in Background"):
+            st.info("Initiating asynchronous swarm. You may leave this page.")
+            progress_bar = st.progress(0)
+            
+            for i, uploaded_file in enumerate(uploaded_files):
+                file_name = f"{int(time.time())}_{uploaded_file.name}"
+                file_bytes = uploaded_file.getbuffer()
                 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                    tmp_file.write(file_bytes)
-                    tmp_path = tmp_file.name
-
                 try:
-                    supabase.storage.from_("invoice-vault").upload(
-                        path=file_name, 
-                        file=tmp_path,
-                        file_options={"content-type": "application/pdf"}
-                    )
-                    
-                    supabase.table("invoice_records").insert({
-                        "pdf_filename": file_name,
-                        "status": "Processing"
-                    }).execute()
-                    
-                    st.success(f"File '{file_name}' uploaded successfully. Processing initiated.")
-                    
+                    data = supabase.table("invoice_records").select("*").limit(1).execute()
                 except Exception as e:
-                    st.error(f"Upload failed: {e}")
-                finally:
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
+                    pass
+                    
+                supabase.storage.from_("invoice-vault").upload(file_name, file_bytes)
+                
+                try:
+                    pdf_reader = PyPDF2.PdfReader(uploaded_file)
+                    extracted_text = ""
+                    for page in pdf_reader.pages:
+                        extracted_text += page.extract_text()
+                    
+                    payload = {"raw_text": extracted_text, "file_path": file_name}
+                    requests.post("http://127.0.0.1:8000/api/extract_async", json=payload)
+                except Exception as e:
+                    st.error(f"Failed to queue {uploaded_file.name}")
+                
+                progress_bar.progress((i + 1) / len(uploaded_files))
+            
+            st.success("Batch successfully pushed to the asynchronous queue.")
+            
+            st.session_state.uploader_key = str(time.time())
+            st.rerun()
 
-# --- TAB 2: HUMAN REVIEW ---
 with tab2:
     st.markdown("### Attention Required")
     try:
@@ -126,11 +131,10 @@ with tab2:
     except Exception as e:
         st.error(f"Error fetching flagged invoices: {e}")
 
-# --- TAB 3: EXECUTIVE ANALYTICS ---
 with tab3:
     col_a, col_b = st.columns([8, 2])
     with col_a:
-        st.markdown("### Swarm Performance Metrics")
+        st.markdown("### Executive Analytics Dashboard")
     with col_b:
         if st.button("🔄 Refresh Data"):
             st.rerun()
@@ -140,13 +144,12 @@ with tab3:
         df_all = pd.DataFrame(response.data)
         
         if df_all.empty:
-            df_all = pd.DataFrame(columns=['status', 'vendor_name', 'total_amount'])
+            df_all = pd.DataFrame(columns=['status', 'vendor_name', 'total_amount', 'invoice_number', 'date'])
 
         df_clean = df_all[(df_all['status'] == 'Approved') & (df_all['vendor_name'].notnull()) & (df_all['vendor_name'] != '')]
         df_pending = df_all[df_all['status'] == 'Processing']
         df_flagged = df_all[df_all['status'] == 'Requires Review']
         
-        # Metrics Row
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Approved", len(df_clean))
         col2.metric("Processing", len(df_pending))
@@ -157,10 +160,28 @@ with tab3:
 
         st.divider()
         
-        # Data Table
-        if not df_all.empty:
-            st.markdown("**Master Ledger**")
-            st.dataframe(df_all, use_container_width=True, hide_index=True)
+        if not df_clean.empty:
+            col_chart1, col_chart2 = st.columns([1, 1])
+            with col_chart1:
+                df_clean['numeric_total'] = pd.to_numeric(df_clean['total_amount'], errors='coerce').fillna(0)
+                vendor_sums = df_clean.groupby('vendor_name')['numeric_total'].sum().reset_index()
+                fig_pie = px.pie(vendor_sums, values='numeric_total', names='vendor_name', title="Expenditure Distribution")
+                st.plotly_chart(fig_pie, use_container_width=True)
+            
+            with col_chart2:
+                st.write("### 📜 Enterprise Ledger")
+                st.dataframe(df_clean[['vendor_name', 'invoice_number', 'total_amount', 'date']], use_container_width=True, hide_index=True)
+                
+                csv = df_clean.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Clean Ledger (CSV)",
+                    data=csv,
+                    file_name='enterprise_ledger_clean.csv',
+                    mime='text/csv',
+                    use_container_width=True
+                )
+        else:
+            st.info("No valid approved records to visualize.")
 
     except Exception as e:
         st.error(f"Error loading dashboard metrics: {e}")
