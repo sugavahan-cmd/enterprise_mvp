@@ -97,7 +97,12 @@ with tab1:
             for i, uploaded_file in enumerate(uploaded_files):
                 file_name = f"{int(time.time())}_{uploaded_file.name}"
                 file_bytes = uploaded_file.getbuffer()
-                
+                # Add this above the line that gives the error
+                try:
+                    data = supabase.table("invoice_records").select("*").limit(1).execute()
+                    print("Database connection test successful!")
+                except Exception as e:
+                    print(f"DEBUG ERROR: {e}")
                 supabase.storage.from_("invoice-vault").upload(file_name, file_bytes)
                 
                 try:
