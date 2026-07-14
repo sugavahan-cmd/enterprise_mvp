@@ -283,10 +283,11 @@ with tab3:
             with col_chart2:
                 st.write("### 📜 Enterprise Ledger")
                 
-                # --- CRITICAL FIX: Cast the entire display slice to string to block PyArrow Segfaults ---
                 display_df = df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']].fillna("Pending").astype(str)
                 
-                st.dataframe(display_df, width="stretch")
+                # --- THE BYPASS: We completely remove st.dataframe and PyArrow ---
+                # --- st.table uses pure HTML and cannot Segfault ---
+                st.table(display_df)
 
                 csv = df_clean.to_csv(index=False).encode('utf-8')
                 
