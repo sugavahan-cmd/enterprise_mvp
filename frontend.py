@@ -268,23 +268,33 @@ with tab3:
         st.divider()
 
         if not df_clean.empty:
+            # --- CRITICAL FIX: Cast the date column to a string to prevent PyArrow Segfaults ---
+            if 'invoice_date' in df_clean.columns:
+                df_clean['invoice_date'] = df_clean['invoice_date'].fillna("Pending").astype(str)
+
             col_chart1, col_chart2 = st.columns([1, 1])
             with col_chart1:
                 vendor_sums = df_clean.groupby('vendor_name')['total_amount'].sum().reset_index()
                 fig_pie = px.pie(vendor_sums, values='total_amount', names='vendor_name', title="Expenditure Distribution")
-                st.plotly_chart(fig_pie, use_container_width=True)
+                
+                # --- FIX: Replaced use_container_width with width="stretch" ---
+                st.plotly_chart(fig_pie, width="stretch")
 
             with col_chart2:
                 st.write("### 📜 Enterprise Ledger")
-                st.dataframe(df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']], use_container_width=True)
+                
+                # --- FIX: Replaced use_container_width with width="stretch" ---
+                st.dataframe(df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']], width="stretch")
 
                 csv = df_clean.to_csv(index=False).encode('utf-8')
+                
+                # --- FIX: Replaced use_container_width with width="stretch" ---
                 st.download_button(
                     label="📥 Download Clean Ledger (CSV)",
                     data=csv,
                     file_name='enterprise_ledger_clean.csv',
                     mime='text/csv',
-                    use_container_width=True,
+                    width="stretch",
                 )
         else:
             st.info("No valid approved records to visualize.")
