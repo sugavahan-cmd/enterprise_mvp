@@ -29,7 +29,7 @@ def read_root():
     return {"status": "Swarm Backend Active", "version": "1.0"}
 
 def background_processing(raw_text: str, file_path: str):
-    time.sleep(1) # Minor buffer
+    time.sleep(1) 
     try:
         result = process_document_text(raw_text)
         
@@ -52,7 +52,7 @@ def background_processing(raw_text: str, file_path: str):
                 "vendor_name": result.get("vendor_name"),
                 "invoice_number": result.get("invoice_number"),
                 "total_amount": result.get("total_amount"),
-                "date": result.get("date"),
+                "invoice_date": result.get("date"), # <-- FIXED COLUMN NAME
                 "status": "Approved"
             }).eq("file_path", file_path).execute()
 
@@ -65,13 +65,11 @@ def background_processing(raw_text: str, file_path: str):
 @app.post("/api/extract_async")
 async def queue_extraction(request: DocumentRequest, background_tasks: BackgroundTasks):
     try:
-        # 1. Insert the new record so the frontend immediately sees it in 'Processing'
         supabase.table("invoice_records").insert({
             "status": "Processing",
             "file_path": request.file_path
         }).execute()
 
-        # 2. Start the AI extraction task in the background
         background_tasks.add_task(background_processing, request.raw_text, request.file_path)
         
         return {"status": "success", "message": "Extraction queued"}
@@ -85,7 +83,7 @@ async def approve_override(request: OverrideRequest):
             "vendor_name": request.vendor_name,
             "invoice_number": request.invoice_number,
             "total_amount": request.total_amount,
-            "date": request.date,
+            "invoice_date": request.date, # <-- FIXED COLUMN NAME
             "status": "Approved",
             "audit_reason": "Manual Override"
         }).eq("id", request.id).execute()
