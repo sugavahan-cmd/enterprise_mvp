@@ -121,22 +121,27 @@ with tab1:
                     if tmp_path and os.path.exists(tmp_path):
                         os.remove(tmp_path)
 
-                try:
-                    uploaded_file.seek(0)
-                    pdf_reader = PyPDF2.PdfReader(uploaded_file)
-                    extracted_text = ""
-                    for page in pdf_reader.pages:
-                        extracted_text += page.extract_text()
+                    try:
+                        uploaded_file.seek(0)
+                        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+                        extracted_text = ""
+                        for page in pdf_reader.pages:
+                            extracted_text += page.extract_text()
                     
-                    payload = {"raw_text": extracted_text, "file_path": file_name}
+                        payload = {"raw_text": extracted_text, "file_path": file_name}
+
+                        api_url = "https://invoice-swarm-ui.onrender.com"
                     
-                    api_url = "https://invoice-swarm-ui.onrender.com"
+                        response = requests.post(f"{api_url}/api/extract_async", json=payload, timeout=120)
+                        response.raise_for_status()
                     
-                    response = requests.post(f"{api_url}/api/extract_async", json=payload, timeout=120)
-                    response.raise_for_status()
+                        # --- CRITICAL FIX: The API Throttle ---
+                        # Pauses for 3 seconds before sending the next invoice 
+                        # to prevent LLM rate limit exhaustion.
+                        time.sleep(3) 
                     
-                except Exception as e:
-                    st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
+                    except Exception as e:
+                        st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
 
                 progress_bar.progress((i + 1) / len(uploaded_files))
 
