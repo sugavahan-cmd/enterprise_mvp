@@ -29,7 +29,7 @@ def read_root():
     return {"status": "Swarm Backend Active", "version": "1.0"}
 
 def background_processing(raw_text: str, file_path: str):
-    time.sleep(3)
+    time.sleep(1) # Minor buffer
     try:
         result = process_document_text(raw_text)
         
@@ -37,7 +37,7 @@ def background_processing(raw_text: str, file_path: str):
             supabase.table("invoice_records").update({
                 "status": "Failed",
                 "audit_reason": result.get("message")
-            }).eq("pdf_filename", file_path).execute()
+            }).eq("file_path", file_path).execute()
             
         elif result.get("status") == "flagged":
             raw_dump = json.dumps(result.get("raw_extraction", {}))
@@ -45,27 +45,35 @@ def background_processing(raw_text: str, file_path: str):
                 "status": "Requires Review",
                 "audit_reason": result.get("message"),
                 "raw_data": raw_dump
-            }).eq("pdf_filename", file_path).execute()
+            }).eq("file_path", file_path).execute()
             
         else:
             supabase.table("invoice_records").update({
                 "vendor_name": result.get("vendor_name"),
                 "invoice_number": result.get("invoice_number"),
                 "total_amount": result.get("total_amount"),
-                "invoice_date": result.get("date"),
+                "date": result.get("date"),
                 "status": "Approved"
-            }).eq("pdf_filename", file_path).execute()
+            }).eq("file_path", file_path).execute()
 
     except Exception as e:
         supabase.table("invoice_records").update({
             "status": "Failed",
             "audit_reason": str(e)
-        }).eq("pdf_filename", file_path).execute()
+        }).eq("file_path", file_path).execute()
 
 @app.post("/api/extract_async")
 async def queue_extraction(request: DocumentRequest, background_tasks: BackgroundTasks):
     try:
+        # 1. Insert the new record so the frontend immediately sees it in 'Processing'
+        supabase.table("invoice_records").insert({
+            "status": "Processing",
+            "file_path": request.file_path
+        }).execute()
+
+        # 2. Start the AI extraction task in the background
         background_tasks.add_task(background_processing, request.raw_text, request.file_path)
+        
         return {"status": "success", "message": "Extraction queued"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -77,7 +85,7 @@ async def approve_override(request: OverrideRequest):
             "vendor_name": request.vendor_name,
             "invoice_number": request.invoice_number,
             "total_amount": request.total_amount,
-            "invoice_date": request.date,
+            "date": request.date,
             "status": "Approved",
             "audit_reason": "Manual Override"
         }).eq("id", request.id).execute()
