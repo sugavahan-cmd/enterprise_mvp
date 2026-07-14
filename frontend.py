@@ -138,7 +138,7 @@ with tab1:
                         # --- CRITICAL FIX: The API Throttle ---
                         # Pauses for 3 seconds before sending the next invoice 
                         # to prevent LLM rate limit exhaustion.
-                        time.sleep(4) 
+                        time.sleep(3) 
                     
                     except Exception as e:
                         st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
