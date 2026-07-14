@@ -1,7 +1,6 @@
 streamlit==1.59.1
 pandas==2.3.3
 plotly==5.20.0
-supabase==2.4.1
 requests==2.31.0
 PyPDF2==3.0.1
 fastapi
@@ -9,3 +8,4 @@ uvicorn
 python-dotenv
 groq
 httpx
+supabase>=2.0.0
