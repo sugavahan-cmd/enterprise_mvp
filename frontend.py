@@ -216,7 +216,7 @@ with tab2:
                         "vendor_name": edit_vendor,
                         "invoice_number": edit_inv,
                         "total_amount": edit_total,
-                        "invoice_date": edit_date,
+                        "date": edit_date,
                     }
                     try:
                         res = requests.post(f"{BACKEND_URL}/api/override", json=payload, timeout=10)
