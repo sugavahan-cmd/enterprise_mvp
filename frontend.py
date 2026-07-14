@@ -254,7 +254,7 @@ with tab3:
             (df_all.get('status') == 'Approved')
             & (df_all['vendor_name'].notnull())
             & (df_all['vendor_name'] != '')
-        ] if not df_all.empty else df_all
+        ].copy() if not df_all.empty else df_all.copy()
         df_pending = df_all[df_all['status'] == 'Processing'] if not df_all.empty else df_all
         df_flagged_view = df_all[df_all['status'] == 'Requires Review'] if not df_all.empty else df_all
 
@@ -283,18 +283,19 @@ with tab3:
             with col_chart2:
                 st.write("### 📜 Enterprise Ledger")
                 
-                # --- FIX: Replaced use_container_width with width="stretch" ---
-                st.dataframe(df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']], width="stretch")
+                # --- CRITICAL FIX: Cast the entire display slice to string to block PyArrow Segfaults ---
+                display_df = df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']].fillna("Pending").astype(str)
+                
+                st.dataframe(display_df, width="stretch")
 
                 csv = df_clean.to_csv(index=False).encode('utf-8')
                 
-                # --- FIX: Replaced use_container_width with width="stretch" ---
                 st.download_button(
                     label="📥 Download Clean Ledger (CSV)",
                     data=csv,
                     file_name='enterprise_ledger_clean.csv',
                     mime='text/csv',
-                    width="stretch",
+                    use_container_width=True,
                 )
         else:
             st.info("No valid approved records to visualize.")
