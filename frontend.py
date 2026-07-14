@@ -216,7 +216,7 @@ with tab2:
                         "vendor_name": edit_vendor,
                         "invoice_number": edit_inv,
                         "total_amount": edit_total,
-                        "date": edit_date,
+                        "invoice_date": edit_date,
                     }
                     try:
                         res = requests.post(f"{BACKEND_URL}/api/override", json=payload, timeout=10)
@@ -235,7 +235,7 @@ with tab3:
     # previously inside `except`, so it only showed when the fetch failed,
     # and referenced df_clean which might not even be assigned yet in that
     # branch (NameError risk). Fetch first, render unconditionally after.
-    df_all = pd.DataFrame(columns=['status', 'vendor_name', 'invoice_number', 'total_amount', 'date'])
+    df_all = pd.DataFrame(columns=['status', 'vendor_name', 'invoice_number', 'total_amount', 'invoice_date'])
     fetch_error = None
     try:
         response = supabase.table("invoice_records").select("*").execute()
@@ -276,7 +276,7 @@ with tab3:
 
             with col_chart2:
                 st.write("### 📜 Enterprise Ledger")
-                st.dataframe(df_clean[['vendor_name', 'invoice_number', 'total_amount', 'date']], use_container_width=True)
+                st.dataframe(df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']], use_container_width=True)
 
                 csv = df_clean.to_csv(index=False).encode('utf-8')
                 st.download_button(
