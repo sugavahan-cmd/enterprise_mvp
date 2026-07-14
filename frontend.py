@@ -122,16 +122,21 @@ with tab1:
                         os.remove(tmp_path)
 
                 try:
+                    uploaded_file.seek(0)
                     pdf_reader = PyPDF2.PdfReader(uploaded_file)
                     extracted_text = ""
                     for page in pdf_reader.pages:
                         extracted_text += page.extract_text()
                     
                     payload = {"raw_text": extracted_text, "file_path": file_name}
-                    api_url = st.secrets.get("API_URL", "http://127.0.0.1:8000")
-                    requests.post(f"{api_url}/api/extract_async", json=payload)
+                    
+                    api_url = "https://invoice-swarm-ui.onrender.com"
+                    
+                    response = requests.post(f"{api_url}/api/extract_async", json=payload, timeout=120)
+                    response.raise_for_status()
+                    
                 except Exception as e:
-                    st.error(f"Failed to queue {uploaded_file.name}")
+                    st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
 
                 progress_bar.progress((i + 1) / len(uploaded_files))
 
