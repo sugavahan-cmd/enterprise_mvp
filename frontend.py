@@ -231,32 +231,38 @@ with tab3:
     if st.button("🔄 Refresh Analytics Dashboard"):
         st.rerun()
 
-    # --- BUG FIX: same nesting bug as tab2 — chart/table rendering was
-    # previously inside `except`, so it only showed when the fetch failed,
-    # and referenced df_clean which might not even be assigned yet in that
-    # branch (NameError risk). Fetch first, render unconditionally after.
-    df_all = pd.DataFrame(columns=['status', 'vendor_name', 'invoice_number', 'total_amount', 'invoice_date'])
     fetch_error = None
+    clean_records = []
+    
     try:
-        response = supabase.table("invoice_records").select("*").execute()
+        response = supabase.table("invoice_records").select("status, vendor_name, invoice_number, total_amount, invoice_date").execute()
         if response.data:
-            df_all = pd.DataFrame(response.data)
+            for row in response.data:
+                clean_records.append({
+                    'status': str(row.get('status') or 'Unknown'),
+                    'vendor_name': str(row.get('vendor_name') or 'Unknown'),
+                    'invoice_number': str(row.get('invoice_number') or 'Pending'),
+                    'total_amount': float(row.get('total_amount') or 0.0),
+                    'invoice_date': str(row.get('invoice_date') or 'Pending')
+                })
     except Exception as e:
         fetch_error = str(e)
 
     if fetch_error:
         st.error(f"Error loading dashboard metrics: {fetch_error}")
     else:
-        if 'total_amount' in df_all.columns:
-            df_all['total_amount'] = pd.to_numeric(df_all['total_amount'], errors='coerce')
+        df_all = pd.DataFrame(clean_records)
+        
+        if df_all.empty:
+            df_all = pd.DataFrame(columns=['status', 'vendor_name', 'invoice_number', 'total_amount', 'invoice_date'])
 
         df_clean = df_all[
-            (df_all.get('status') == 'Approved')
-            & (df_all['vendor_name'].notnull())
-            & (df_all['vendor_name'] != '')
-        ].copy() if not df_all.empty else df_all.copy()
-        df_pending = df_all[df_all['status'] == 'Processing'] if not df_all.empty else df_all
-        df_flagged_view = df_all[df_all['status'] == 'Requires Review'] if not df_all.empty else df_all
+            (df_all['status'] == 'Approved') & 
+            (df_all['vendor_name'] != 'Unknown')
+        ].copy()
+        
+        df_pending = df_all[df_all['status'] == 'Processing']
+        df_flagged_view = df_all[df_all['status'] == 'Requires Review']
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Approved", len(df_clean))
@@ -268,29 +274,17 @@ with tab3:
         st.divider()
 
         if not df_clean.empty:
-            # --- CRITICAL FIX: Cast the date column to a string to prevent PyArrow Segfaults ---
-            if 'invoice_date' in df_clean.columns:
-                df_clean['invoice_date'] = df_clean['invoice_date'].fillna("Pending").astype(str)
-
             col_chart1, col_chart2 = st.columns([1, 1])
             with col_chart1:
                 vendor_sums = df_clean.groupby('vendor_name')['total_amount'].sum().reset_index()
                 fig_pie = px.pie(vendor_sums, values='total_amount', names='vendor_name', title="Expenditure Distribution")
-                
-                # --- FIX: Replaced use_container_width with width="stretch" ---
-                st.plotly_chart(fig_pie, width="stretch")
+                st.plotly_chart(fig_pie)
 
             with col_chart2:
                 st.write("### 📜 Enterprise Ledger")
-                
-                display_df = df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']].fillna("Pending").astype(str)
-                
-                # --- THE BYPASS: We completely remove st.dataframe and PyArrow ---
-                # --- st.table uses pure HTML and cannot Segfault ---
-                st.table(display_df)
+                st.dataframe(df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']], use_container_width=True)
 
                 csv = df_clean.to_csv(index=False).encode('utf-8')
-                
                 st.download_button(
                     label="📥 Download Clean Ledger (CSV)",
                     data=csv,
