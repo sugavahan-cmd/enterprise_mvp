@@ -267,14 +267,14 @@ with tab3:
         ].copy()
         
         df_pending = df_all[df_all['status'] == 'Processing']
-        df_flagged_view = df_all[df_all['status'] == 'Requires Review']
+        
+        # --- THE FIX: Tell Tab 3 to count both 'Requires Review' and 'Failed' ---
+        df_flagged_view = df_all[df_all['status'].isin(['Requires Review', 'Failed'])]
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Approved", len(df_clean))
         col2.metric("Processing", len(df_pending))
         col3.metric("Flagged", len(df_flagged_view))
-        total_cap = df_clean['total_amount'].sum() if not df_clean.empty else 0.0
-        col4.metric("Capital Processed", f"₹{total_cap:,.2f}")
 
         st.divider()
 
