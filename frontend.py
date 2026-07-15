@@ -18,6 +18,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 STORAGE_BUCKET = "invoice-vault"
 
+# Dynamically routes to the Sandbox API on Render, or falls back to local testing
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Enterprise Data Extractor", layout="wide")
@@ -130,9 +131,8 @@ with tab1:
                     
                         payload = {"raw_text": extracted_text, "file_path": file_name}
 
-                        api_url = "https://invoice-swarm-ui.onrender.com"
-                    
-                        response = requests.post(f"{api_url}/api/extract_async", json=payload, timeout=120)
+                        # --- THE FINAL FIX: Dynamic routing to the correct environment backend ---
+                        response = requests.post(f"{BACKEND_URL}/api/extract_async", json=payload, timeout=120)
                         response.raise_for_status()
                     
                         # --- CRITICAL FIX: The API Throttle ---
