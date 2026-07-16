@@ -47,7 +47,7 @@ def call_secondary_llm(prompt: str, require_json: bool = True) -> str:
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3.1-8b",
+        "model": "llama-3.3-70b",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
     }
@@ -96,15 +96,14 @@ def call_llm(prompt: str, require_json: bool = True) -> str:
                 try:
                     print("[SENTINEL] Cascading to Secondary (Cerebras)...")
                     return call_secondary_llm(prompt, require_json)
-                except RateLimitError:
-                    try:
-                        print("[SENTINEL] 429 Rate Limit hit on Secondary. Cascading to Tertiary (Together AI)...")
-                        return call_tertiary_llm(prompt, require_json)
-                    except Exception as e:
-                        print(f"[SENTINEL] Tertiary Failed: {e}")
                 except Exception as e:
                     print(f"[SENTINEL] Secondary Failed: {e}")
-                    
+                    try:
+                        print("[SENTINEL] Cascading to Tertiary (Together AI)...")
+                        return call_tertiary_llm(prompt, require_json)
+                    except Exception as e2:
+                        print(f"[SENTINEL] Tertiary Failed: {e2}")
+                        
             wait_time = (2 ** attempt)
             print(f"[SENTINEL] Sleeping for {wait_time} seconds before retry...")
             time.sleep(wait_time)
