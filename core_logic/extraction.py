@@ -81,26 +81,35 @@ def call_tertiary_llm(prompt: str, require_json: bool = True) -> str:
 
 def call_llm(prompt: str, require_json: bool = True) -> str:
     use_fallback = os.getenv("ENABLE_FALLBACK", "false").lower() == "true"
+    print(f"[SENTINEL] Fallback Mode Active: {use_fallback}")
     max_retries = 5
     
     for attempt in range(max_retries):
         try:
+            print(f"[SENTINEL] Routing to Primary (Groq) - Attempt {attempt + 1}")
             return call_primary_llm(prompt, require_json)
+            
         except RateLimitError:
+            print("[SENTINEL] 429 Rate Limit hit on Primary.")
+            
             if use_fallback:
                 try:
+                    print("[SENTINEL] Cascading to Secondary (Cerebras)...")
                     return call_secondary_llm(prompt, require_json)
                 except RateLimitError:
                     try:
+                        print("[SENTINEL] 429 Rate Limit hit on Secondary. Cascading to Tertiary (Together AI)...")
                         return call_tertiary_llm(prompt, require_json)
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
+                    except Exception as e:
+                        print(f"[SENTINEL] Tertiary Failed: {e}")
+                except Exception as e:
+                    print(f"[SENTINEL] Secondary Failed: {e}")
                     
             wait_time = (2 ** attempt)
+            print(f"[SENTINEL] Sleeping for {wait_time} seconds before retry...")
             time.sleep(wait_time)
             continue
+            
         except Exception as e:
             raise e
             

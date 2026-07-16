@@ -29,7 +29,7 @@ def read_root():
     return {"status": "Swarm Backend Active", "version": "1.0"}
 
 def background_processing(raw_text: str, file_path: str):
-    time.sleep(1) 
+     
     try:
         result = process_document_text(raw_text)
         

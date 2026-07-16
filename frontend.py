@@ -88,7 +88,7 @@ with tab1:
     if uploaded_files and len(uploaded_files) > 15:
         st.error("Batch limit exceeded. Please upload a maximum of 15 invoices at a time.")
     elif uploaded_files:
-        if st.button("Process Batch in Background"):
+        if st.button("Process Batch in Background",width="stretch"):
             st.info("Initiating asynchronous swarm. You may leave this page once the batch finishes queuing.")
             progress_bar = st.progress(0)
 
@@ -126,7 +126,7 @@ with tab1:
                         response = requests.post(f"{BACKEND_URL}/api/extract_async", json=payload, timeout=120)
                         response.raise_for_status()
                     
-                        time.sleep(3) 
+                        time.sleep(2) 
                     
                     except Exception as e:
                         st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
