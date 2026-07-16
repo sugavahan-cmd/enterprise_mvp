@@ -8,8 +8,8 @@ from pydantic import BaseModel, ValidationError
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
-TERTIARY_API_KEY = os.getenv("TERTIARY_API_KEY")
+SAMBANOVA_API_KEY = os.getenv("SAMBANOVA_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 class InvoiceSchema(BaseModel):
     vendor_name: Optional[str] = None
@@ -43,18 +43,18 @@ def call_primary_llm(prompt: str, require_json: bool = True) -> str:
 
 def call_secondary_llm(prompt: str, require_json: bool = True) -> str:
     headers = {
-        "Authorization": f"Bearer {CEREBRAS_API_KEY}",
+        "Authorization": f"Bearer {SAMBANOVA_API_KEY}",
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama-3.3-70b",
+        "model": "Meta-Llama-3.1-8B-Instruct",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
     }
     if require_json:
         payload["response_format"] = {"type": "json_object"}
 
-    response = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload)
+    response = requests.post("https://api.sambanova.ai/v1/chat/completions", headers=headers, json=payload)
     
     if response.status_code == 429:
         raise RateLimitError()
@@ -64,18 +64,22 @@ def call_secondary_llm(prompt: str, require_json: bool = True) -> str:
 
 def call_tertiary_llm(prompt: str, require_json: bool = True) -> str:
     headers = {
-        "Authorization": f"Bearer {TERTIARY_API_KEY}",
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "model": "meta-llama/llama-3.1-8b-instruct:free",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
     }
     if require_json:
         payload["response_format"] = {"type": "json_object"}
 
-    response = requests.post("https://api.together.xyz/v1/chat/completions", headers=headers, json=payload)
+    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+    
+    if response.status_code == 429:
+        raise RateLimitError()
+        
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
@@ -94,12 +98,12 @@ def call_llm(prompt: str, require_json: bool = True) -> str:
             
             if use_fallback:
                 try:
-                    print("[SENTINEL] Cascading to Secondary (Cerebras)...")
+                    print("[SENTINEL] Cascading to Secondary (SambaNova)...")
                     return call_secondary_llm(prompt, require_json)
                 except Exception as e:
                     print(f"[SENTINEL] Secondary Failed: {e}")
                     try:
-                        print("[SENTINEL] Cascading to Tertiary (Together AI)...")
+                        print("[SENTINEL] Cascading to Tertiary (OpenRouter)...")
                         return call_tertiary_llm(prompt, require_json)
                     except Exception as e2:
                         print(f"[SENTINEL] Tertiary Failed: {e2}")
