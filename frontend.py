@@ -18,7 +18,6 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 STORAGE_BUCKET = "invoice-vault"
 
-# Dynamically routes to the Sandbox API on Render, or falls back to local testing
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Enterprise Data Extractor", layout="wide")
@@ -54,7 +53,6 @@ if "authenticated" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = "1"
 
-
 def login():
     st.title("System Authentication")
     username = st.text_input("Username")
@@ -65,7 +63,6 @@ def login():
             st.rerun()
         else:
             st.error("Unauthorized Access")
-
 
 if not st.session_state.authenticated:
     login()
@@ -98,11 +95,6 @@ with tab1:
             for i, uploaded_file in enumerate(uploaded_files):
                 file_name = f"{int(time.time())}_{uploaded_file.name}"
 
-                # --- BUG FIX: supabase-py's storage upload() ends up calling
-                # open(file, "rb") internally. getbuffer() returns a
-                # memoryview, which open() cannot treat as a path -> TypeError.
-                # Writing to a real temp file and passing its path sidesteps
-                # this regardless of storage3 version behavior.
                 file_bytes = uploaded_file.getbuffer().tobytes()
                 tmp_path = None
                 try:
@@ -131,13 +123,9 @@ with tab1:
                     
                         payload = {"raw_text": extracted_text, "file_path": file_name}
 
-                        # --- THE FINAL FIX: Dynamic routing to the correct environment backend ---
                         response = requests.post(f"{BACKEND_URL}/api/extract_async", json=payload, timeout=120)
                         response.raise_for_status()
                     
-                        # --- CRITICAL FIX: The API Throttle ---
-                        # Pauses for 3 seconds before sending the next invoice 
-                        # to prevent LLM rate limit exhaustion.
                         time.sleep(3) 
                     
                     except Exception as e:
@@ -150,10 +138,6 @@ with tab1:
             st.rerun()
 
 with tab2:
-    # --- BUG FIX: previously the fetch-and-render logic below was nested
-    # inside the `except` block, so the review queue only rendered when the
-    # Supabase call FAILED. Split cleanly: try only does the fetch, all
-    # rendering happens afterward regardless of outcome.
     df_flagged = pd.DataFrame(columns=["id", "audit_reason", "raw_data", "file_path"])
     fetch_error = None
     try:
@@ -181,9 +165,6 @@ with tab2:
             with st.expander(f"Review Error ID: {row['id']} | {clean_filename}"):
                 st.error(row['audit_reason'] if row['audit_reason'] else "Unknown processing error")
 
-                # --- BUG FIX: files live in Supabase Storage now, not on
-                # local disk. Generate a signed URL instead of open()-ing a
-                # local path that no longer exists.
                 try:
                     signed = supabase.storage.from_(STORAGE_BUCKET).create_signed_url(row['file_path'], 3600)
                     pdf_url = signed.get("signedURL") or signed.get("signedUrl")
@@ -268,7 +249,6 @@ with tab3:
         
         df_pending = df_all[df_all['status'] == 'Processing']
         
-        # --- THE FIX: Tell Tab 3 to count both 'Requires Review' and 'Failed' ---
         df_flagged_view = df_all[df_all['status'].isin(['Requires Review', 'Failed'])]
 
         col1, col2, col3, col4 = st.columns(4)
@@ -287,7 +267,7 @@ with tab3:
 
             with col_chart2:
                 st.write("### 📜 Enterprise Ledger")
-                st.dataframe(df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']], use_container_width=True)
+                st.dataframe(df_clean[['vendor_name', 'invoice_number', 'total_amount', 'invoice_date']], width="stretch")
 
                 csv = df_clean.to_csv(index=False).encode('utf-8')
                 st.download_button(
@@ -295,7 +275,7 @@ with tab3:
                     data=csv,
                     file_name='enterprise_ledger_clean.csv',
                     mime='text/csv',
-                    use_container_width=True,
+                    width="stretch",
                 )
         else:
             st.info("No valid approved records to visualize.")
