@@ -47,7 +47,7 @@ def call_secondary_llm(prompt: str, require_json: bool = True) -> str:
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "Meta-Llama-3.1-8B-Instruct",
+        "model": "Meta-Llama-3.3-70B-Instruct",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
     }
@@ -68,7 +68,7 @@ def call_tertiary_llm(prompt: str, require_json: bool = True) -> str:
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "meta-llama/llama-3.1-8b-instruct:free",
+        "model": "openrouter/free",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
     }
