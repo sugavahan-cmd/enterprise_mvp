@@ -8,6 +8,8 @@ from pydantic import BaseModel, ValidationError
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
+TERTIARY_API_KEY = os.getenv("TERTIARY_API_KEY")
 
 class InvoiceSchema(BaseModel):
     vendor_name: Optional[str] = None
@@ -15,7 +17,10 @@ class InvoiceSchema(BaseModel):
     total_amount: Optional[float] = None
     date: Optional[str] = None
 
-def call_llm(prompt: str, require_json: bool = True) -> str:
+class RateLimitError(Exception):
+    pass
+
+def call_primary_llm(prompt: str, require_json: bool = True) -> str:
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
@@ -28,28 +33,83 @@ def call_llm(prompt: str, require_json: bool = True) -> str:
     if require_json:
         payload["response_format"] = {"type": "json_object"}
 
-    # --- RESILIENCE LOGIC: RETRY LOOP ---
-    max_retries = 5
-    for attempt in range(max_retries):
-        response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+    response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+    
+    if response.status_code == 429:
+        raise RateLimitError()
+        
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
 
-        if response.status_code == 429:
+def call_secondary_llm(prompt: str, require_json: bool = True) -> str:
+    headers = {
+        "Authorization": f"Bearer {CEREBRAS_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "llama3.1-8b",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.0,
+    }
+    if require_json:
+        payload["response_format"] = {"type": "json_object"}
+
+    response = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload)
+    
+    if response.status_code == 429:
+        raise RateLimitError()
+        
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
+def call_tertiary_llm(prompt: str, require_json: bool = True) -> str:
+    headers = {
+        "Authorization": f"Bearer {TERTIARY_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.0,
+    }
+    if require_json:
+        payload["response_format"] = {"type": "json_object"}
+
+    response = requests.post("https://api.together.xyz/v1/chat/completions", headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
+def call_llm(prompt: str, require_json: bool = True) -> str:
+    use_fallback = os.getenv("ENABLE_FALLBACK", "false").lower() == "true"
+    max_retries = 5
+    
+    for attempt in range(max_retries):
+        try:
+            return call_primary_llm(prompt, require_json)
+        except RateLimitError:
+            if use_fallback:
+                try:
+                    return call_secondary_llm(prompt, require_json)
+                except RateLimitError:
+                    try:
+                        return call_tertiary_llm(prompt, require_json)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                    
             wait_time = (2 ** attempt)
             time.sleep(wait_time)
             continue
-
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-
+        except Exception as e:
+            raise e
+            
     raise Exception("Max retries exceeded. API rate limit exhausted.")
-
 
 def process_document_text(raw_text: str) -> dict:
     if not raw_text.strip():
         return {"status": "error", "message": "No readable text found."}
 
-    # --- AGENT 1: EXTRACTOR ---
-    # BUG FIX: raw_text was never actually included in this prompt before.
     extractor_prompt = f"""
         You are an elite Data Extraction Agent. Extract the following fields from the invoice text below:
         vendor_name, invoice_number, total_amount, date.
@@ -71,10 +131,6 @@ def process_document_text(raw_text: str) -> dict:
         extracted_data_str = call_llm(extractor_prompt, require_json=True)
         extracted_json = json.loads(extracted_data_str)
 
-        # --- AGENT 2: AUDITOR ---
-        # BUG FIX: this used to be a verbatim copy of the extractor prompt.
-        # It never received raw_text OR extracted_json, and never asked for
-        # is_valid/reason, so audit_json.get("is_valid") was always falsy.
         auditor_prompt = f"""
         You are an elite Data Auditor Agent. Your job is to verify whether the
         extracted JSON below is fully and accurately supported by the original
@@ -89,7 +145,6 @@ def process_document_text(raw_text: str) -> dict:
           the source text exactly.
         - A field being null is fine as long as it's genuinely absent from
           the source text — do not penalize legitimate nulls.
-
         
         You are the Audit Agent. Your ONLY job is to verify the 4 extracted fields against the Original Text.
         Original Text: {raw_text}
@@ -103,13 +158,11 @@ def process_document_text(raw_text: str) -> dict:
         
         Return ONLY a JSON object with two keys: 
         "is_valid" (boolean true/false) and "reason" (string explaining why).
-
         """
 
         audit_result_str = call_llm(auditor_prompt, require_json=True)
         audit_json = json.loads(audit_result_str)
 
-        # --- ORCHESTRATOR ROUTING ---
         if audit_json.get("is_valid"):
             validated_invoice = InvoiceSchema(**extracted_json)
             result = validated_invoice.model_dump()
