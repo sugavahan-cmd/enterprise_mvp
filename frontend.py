@@ -126,7 +126,7 @@ with tab1:
                         response = requests.post(f"{BACKEND_URL}/api/extract_async", json=payload, timeout=120)
                         response.raise_for_status()
                     
-                        time.sleep(2) 
+                         
                     
                     except Exception as e:
                         st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
