@@ -150,32 +150,42 @@ def process_document_text(raw_text: str) -> dict:
         extracted_json = json.loads(extracted_data_str)
 
         auditor_prompt = f"""
-        You are an elite Data Auditor Agent. Your job is to verify whether the
-        extracted JSON below is fully and accurately supported by the original
-        invoice text. You are NOT extracting from scratch — you are checking
-        someone else's work.
+        You are a Data Auditor Agent. You are NOT extracting data — you are verifying
+        whether an already-extracted JSON is fully and accurately supported by the
+        original invoice text.
 
-        ANTI-HALLUCINATION PROTOCOL:
-        - Flag as invalid if any field appears to be invented, guessed, or a
-          generic placeholder (e.g., "ABC Corp", "INV-001", "1234.56") that
-          does not literally appear/derive from the invoice text.
-        - Flag as invalid if 'total_amount' decimal placement does not match
-          the source text exactly.
-        - A field being null is fine as long as it's genuinely absent from
-          the source text — do not penalize legitimate nulls.
-        
-        You are the Audit Agent. Your ONLY job is to verify the 4 extracted fields against the Original Text.
-        Original Text: {raw_text}
-        Extracted JSON: {extracted_data_str}
-        
-        CRITICAL RULES:
-        1. Only evaluate the following fields: vendor_name, invoice_number, total_amount, date. 
-        2. DO NOT flag the JSON for missing fields like 'client_name', 'items', 'VAT', or 'taxes'. We do not want those fields.
-        3. For 'total_amount', ignore commas, currency symbols (like $, INR, Rs), and minor rounding differences under 1.0. 
-        4. Does the total_amount in the JSON numerically match the final total in the text?
-        
-        Return ONLY a JSON object with two keys: 
-        "is_valid" (boolean true/false) and "reason" (string explaining why).
+        Original Text:
+        {raw_text}
+
+        Extracted JSON:
+        {extracted_data_str}
+
+        SCOPE:
+        Only evaluate these 4 fields: vendor_name, invoice_number, total_amount, date.
+        Do NOT flag the JSON for missing or extra fields (e.g. client_name, items,VAT, taxes) — those are out of scope and irrelevant to this audit.
+
+        ANTI-HALLUCINATION CHECK:
+        -Flag as invalid if any of the 4 fields appears to be invented, guessed, or a
+        generic placeholder (e.g. "ABC Corp", "INV-001", "1234.56") that does not literally appear in or derive from the invoice text.
+        -A field being null is NOT a defect if it is genuinely absent from the source
+        text — do not penalize legitimate nulls.
+
+        FIELD-SPECIFIC RULES:
+        - vendor_name / invoice_number: must match the source text (case-insensitive,
+            ignoring surrounding whitespace).
+        - date: must match the date in the source text, allowing for equivalent
+            formats (e.g. "01/02/2024" vs "Feb 1, 2024" if unambiguous), but not a
+            different date.
+        - total_amount: normalize before comparing — strip commas, currency symbols
+            (INR, Rs, $, etc.), and trailing/leading whitespace. Compare the resulting
+            numeric value exactly. "1,844,673.60" and "1844673.60" are a match. Do NOT
+            allow rounding tolerance — a decimal-placement error (e.g. 1234.56 vs
+            123456) is a real error and must be flagged invalid.
+
+        OUTPUT:
+        Return ONLY a raw JSON object, with no markdown formatting, no code fences,
+        and no explanatory text outside the JSON. It must have exactly two keys:
+        "is_valid" (boolean) and "reason" (a short string explaining the decision).
         """
 
         audit_result_str = call_llm(auditor_prompt, require_json=True)
