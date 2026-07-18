@@ -2,6 +2,7 @@ import json
 import requests
 import os
 import time
+import threading
 from dotenv import load_dotenv
 from typing import Optional
 from pydantic import BaseModel, ValidationError
@@ -10,6 +11,8 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 SAMBANOVA_API_KEY = os.getenv("SAMBANOVA_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+extraction_lock = threading.Lock()
 
 class InvoiceSchema(BaseModel):
     vendor_name: Optional[str] = None
@@ -36,7 +39,7 @@ def call_primary_llm(prompt: str, require_json: bool = True) -> str:
     response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
     
     if response.status_code == 429:
-        raise RateLimitError()
+        raise RateLimitError("Groq Primary 429 Throttling")
         
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
@@ -57,7 +60,7 @@ def call_secondary_llm(prompt: str, require_json: bool = True) -> str:
     response = requests.post("https://api.sambanova.ai/v1/chat/completions", headers=headers, json=payload)
     
     if response.status_code == 429:
-        raise RateLimitError()
+        raise RateLimitError("SambaNova Secondary 429 Throttling")
         
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
@@ -78,7 +81,7 @@ def call_tertiary_llm(prompt: str, require_json: bool = True) -> str:
     response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
     
     if response.status_code == 429:
-        raise RateLimitError()
+        raise RateLimitError("OpenRouter Tertiary 429 Throttling")
         
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
@@ -91,22 +94,25 @@ def call_llm(prompt: str, require_json: bool = True) -> str:
     for attempt in range(max_retries):
         try:
             print(f"[SENTINEL] Routing to Primary (Groq) - Attempt {attempt + 1}")
-            return call_primary_llm(prompt, require_json)
+            with extraction_lock:
+                return call_primary_llm(prompt, require_json)
             
-        except RateLimitError:
-            print("[SENTINEL] 429 Rate Limit hit on Primary.")
+        except RateLimitError as e:
+            print(f"[SENTINEL] 429 Rate Limit hit on Primary: {repr(e)}")
             
             if use_fallback:
                 try:
                     print("[SENTINEL] Cascading to Secondary (SambaNova)...")
-                    return call_secondary_llm(prompt, require_json)
-                except Exception as e:
-                    print(f"[SENTINEL] Secondary Failed: {e}")
+                    with extraction_lock:
+                        return call_secondary_llm(prompt, require_json)
+                except Exception as e2:
+                    print(f"[SENTINEL] Secondary Failed: {repr(e2)}")
                     try:
                         print("[SENTINEL] Cascading to Tertiary (OpenRouter)...")
-                        return call_tertiary_llm(prompt, require_json)
-                    except Exception as e2:
-                        print(f"[SENTINEL] Tertiary Failed: {e2}")
+                        with extraction_lock:
+                            return call_tertiary_llm(prompt, require_json)
+                    except Exception as e3:
+                        print(f"[SENTINEL] Tertiary Failed: {repr(e3)}")
                         
             wait_time = (2 ** attempt)
             print(f"[SENTINEL] Sleeping for {wait_time} seconds before retry...")
@@ -162,13 +168,13 @@ def process_document_text(raw_text: str) -> dict:
 
         SCOPE:
         Only evaluate these 4 fields: vendor_name, invoice_number, total_amount, date.
-        Do NOT flag the JSON for missing or extra fields (e.g. client_name, items,VAT, taxes) — those are out of scope and irrelevant to this audit.
+        Do NOT flag the JSON for missing or extra fields (e.g. client_name, items, VAT, taxes) — those are out of scope and irrelevant to this audit.
 
         ANTI-HALLUCINATION CHECK:
-        -Flag as invalid if any of the 4 fields appears to be invented, guessed, or a
-        generic placeholder (e.g. "ABC Corp", "INV-001", "1234.56") that does not literally appear in or derive from the invoice text.
-        -A field being null is NOT a defect if it is genuinely absent from the source
-        text — do not penalize legitimate nulls.
+        - Flag as invalid if any of the 4 fields appears to be invented, guessed, or a
+          generic placeholder (e.g. "ABC Corp", "INV-001", "1234.56") that does not literally appear in or derive from the invoice text.
+        - A field being null is NOT a defect if it is genuinely absent from the source
+          text — do not penalize legitimate nulls.
 
         FIELD-SPECIFIC RULES:
         - vendor_name / invoice_number: must match the source text (case-insensitive,
