@@ -205,7 +205,7 @@ with tab2:
                         "date": edit_date,
                     }
                     try:
-                        res = requests.post(f"{BACKEND_URL}/api/override", json=payload, timeout=10)
+                        res = requests.post(f"{BACKEND_URL}/api/override", json=payload, timeout=60)
                         if res.status_code == 200:
                             st.rerun()
                         else:
