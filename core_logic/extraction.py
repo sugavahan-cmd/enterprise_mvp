@@ -131,6 +131,12 @@ def process_document_text(raw_text: str) -> dict:
         - Do not strip decimals, do not move decimals, and do not append '.00' unless the original text explicitly has it.
         - Remove currency symbols and commas, but keep the fractional value perfectly intact.
 
+        CRITICAL FINANCIAL EXTRACTION RULE:
+        When parsing the invoice to extract the 'total_amount', you must locate the absolute final liability due after all taxes and adjustments.
+        - Identify 'Gross Worth', 'Total Amount Due', or 'Gross Amount' as the primary target for the 'total_amount' key.
+        - Do not extract the 'Net Worth', 'Subtotal', or any pre-tax figures into the 'total_amount' field, even if they are positioned directly next to the word 'Total'.
+        - If a column labeled 'Gross Worth' or 'Total (Inclusive of Tax)' is present, that specific value takes absolute priority over all other financial figures.
+
         INVOICE TEXT:
         \"\"\"
         {raw_text}
