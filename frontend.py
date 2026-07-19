@@ -53,12 +53,6 @@ if "authenticated" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = "1"
 
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-if "uploader_key" not in st.session_state:
-    st.session_state.uploader_key = "1"
-
 if "session_id" not in st.session_state:
     st.session_state.session_id = None
 
@@ -74,12 +68,6 @@ def login():
             st.rerun()
         else:
             st.error("Unauthorized Access")
-
-if not st.session_state.authenticated:
-    login()
-    st.stop()
-
-
 
 if not st.session_state.authenticated:
     login()
