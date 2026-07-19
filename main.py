@@ -1,7 +1,6 @@
 import os
 import json
 import threading
-
 from typing import Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -19,6 +18,7 @@ extraction_lock = threading.Lock()
 class DocumentRequest(BaseModel):
     raw_text: str
     file_path: str
+    session_id: str
 
 class OverrideRequest(BaseModel):
     id: int
@@ -70,7 +70,8 @@ async def queue_extraction(request: DocumentRequest, background_tasks: Backgroun
     try:
         supabase.table("invoice_records").insert({
             "status": "Processing",
-            "file_path": request.file_path
+            "file_path": request.file_path,
+            "session_id": request.session_id
         }).execute()
 
         background_tasks.add_task(background_processing, request.raw_text, request.file_path)

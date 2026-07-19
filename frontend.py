@@ -7,6 +7,7 @@ import os
 import time
 import base64
 import tempfile
+import uuid
 import plotly.express as px
 from supabase import create_client, Client
 
@@ -53,6 +54,9 @@ if "authenticated" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = "1"
 
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
 def login():
     st.title("System Authentication")
     username = st.text_input("Username")
@@ -93,7 +97,7 @@ with tab1:
             progress_bar = st.progress(0)
 
             for i, uploaded_file in enumerate(uploaded_files):
-                file_name = f"{int(time.time())}_{uploaded_file.name}"
+                file_name = f"{st.session_state.session_id}_{uploaded_file.name}"
 
                 file_bytes = uploaded_file.getbuffer().tobytes()
                 tmp_path = None
@@ -121,17 +125,19 @@ with tab1:
                         for page in pdf_reader.pages:
                             extracted_text += page.extract_text()
                     
-                        payload = {"raw_text": extracted_text, "file_path": file_name}
+                        payload = {
+                            "raw_text": extracted_text, 
+                            "file_path": file_name,
+                            "session_id": st.session_state.session_id
+                        }
 
                         response = requests.post(f"{BACKEND_URL}/api/extract_async", json=payload, timeout=120)
                         response.raise_for_status()
                     
-                         
-                    
                     except Exception as e:
                         st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
 
-                progress_bar.progress((i + 1) / len(uploaded_files))
+            progress_bar.progress((i + 1) / len(uploaded_files))
 
             st.success("Batch successfully pushed to the asynchronous queue.")
             st.session_state.uploader_key = str(time.time())
@@ -145,6 +151,7 @@ with tab2:
             supabase.table("invoice_records")
             .select("id, audit_reason, raw_data, file_path")
             .in_("status", ["Requires Review", "Failed"])
+            .eq("session_id", st.session_state.session_id)
             .execute()
         )
         if response.data:
@@ -221,7 +228,7 @@ with tab3:
     clean_records = []
     
     try:
-        response = supabase.table("invoice_records").select("status, vendor_name, invoice_number, total_amount, invoice_date").execute()
+        response = supabase.table("invoice_records").select("status, vendor_name, invoice_number, total_amount, invoice_date").eq("session_id", st.session_state.session_id).execute()
         if response.data:
             for row in response.data:
                 clean_records.append({
