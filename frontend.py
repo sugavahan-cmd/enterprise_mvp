@@ -7,7 +7,6 @@ import os
 import time
 import base64
 import tempfile
-import uuid
 import plotly.express as px
 from supabase import create_client, Client
 
@@ -54,19 +53,33 @@ if "authenticated" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = "1"
 
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = "1"
+
 if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
+    st.session_state.session_id = None
 
 def login():
     st.title("System Authentication")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
+    
     if st.button("Login"):
-        if username == "admin" and password == "secure123":
+        if username and password == "secure123":
             st.session_state.authenticated = True
+            st.session_state.session_id = username
             st.rerun()
         else:
             st.error("Unauthorized Access")
+
+if not st.session_state.authenticated:
+    login()
+    st.stop()
+
+
 
 if not st.session_state.authenticated:
     login()
