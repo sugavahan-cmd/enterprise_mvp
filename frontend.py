@@ -58,16 +58,45 @@ if "session_id" not in st.session_state:
 
 def login():
     st.title("System Authentication")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
     
-    if st.button("Login"):
-        if username and password == "secure123":
-            st.session_state.authenticated = True
-            st.session_state.session_id = username
-            st.rerun()
-        else:
-            st.error("Unauthorized Access")
+    login_tab, signup_tab = st.tabs(["Login", "Create Account"])
+    
+    # --- LOGIN TAB ---
+    with login_tab:
+        st.subheader("Access Your Dashboard")
+        email_login = st.text_input("Email Address", key="login_email")
+        pass_login = st.text_input("Password", type="password", key="login_pass")
+        
+        if st.button("Login", width="stretch"):
+            if email_login and pass_login:
+                try:
+                    response = supabase.auth.sign_in_with_password({"email": email_login, "password": pass_login})
+                    if response.user:
+                        st.session_state.authenticated = True
+                        # Use the user's email as their unique session_id for database isolation
+                        st.session_state.session_id = response.user.email 
+                        st.rerun()
+                except Exception as e:
+                    st.error("Invalid credentials or user does not exist.")
+            else:
+                st.warning("Please enter both email and password.")
+
+    # --- SIGN UP TAB ---
+    with signup_tab:
+        st.subheader("Register New Account")
+        email_signup = st.text_input("Email Address", key="signup_email")
+        pass_signup = st.text_input("Password", type="password", key="signup_pass")
+        
+        if st.button("Sign Up", width="stretch"):
+            if email_signup and pass_signup:
+                try:
+                    response = supabase.auth.sign_up({"email": email_signup, "password": pass_signup})
+                    if response.user:
+                        st.success("Account created successfully! You can now switch to the Login tab.")
+                except Exception as e:
+                    st.error(f"Registration failed: {e}")
+            else:
+                st.warning("Please provide a valid email and password.")
 
 if not st.session_state.authenticated:
     login()
