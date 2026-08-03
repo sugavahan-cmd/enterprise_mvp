@@ -7,9 +7,10 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 from core_logic.extraction import process_document_text
 
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 app = FastAPI()
 
