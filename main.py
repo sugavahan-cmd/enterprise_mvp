@@ -7,7 +7,6 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 from core_logic.extraction import process_document_text
 
-
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -32,7 +31,7 @@ class OverrideRequest(BaseModel):
 def read_root():
     return {"status": "Swarm Backend Active", "version": "1.0"}
 
-def background_processing(raw_text: str, file_path: str):
+def background_processing(raw_text: str, record_id: int):
     with extraction_lock:
         try:
             result = process_document_text(raw_text)
@@ -41,7 +40,7 @@ def background_processing(raw_text: str, file_path: str):
                 supabase.table("invoice_records").update({
                     "status": "Failed",
                     "audit_reason": result.get("message")
-                }).eq("file_path", file_path).execute()
+                }).eq("id", record_id).execute()
                 
             elif result.get("status") == "flagged":
                 raw_dump = json.dumps(result.get("raw_extraction", {}))
@@ -49,7 +48,7 @@ def background_processing(raw_text: str, file_path: str):
                     "status": "Requires Review",
                     "audit_reason": result.get("message"),
                     "raw_data": raw_dump
-                }).eq("file_path", file_path).execute()
+                }).eq("id", record_id).execute()
                 
             else:
                 supabase.table("invoice_records").update({
@@ -58,24 +57,31 @@ def background_processing(raw_text: str, file_path: str):
                     "total_amount": result.get("total_amount"),
                     "invoice_date": result.get("date"),
                     "status": "Approved"
-                }).eq("file_path", file_path).execute()
+                }).eq("id", record_id).execute()
 
         except Exception as e:
             supabase.table("invoice_records").update({
                 "status": "Failed",
                 "audit_reason": str(e)
-            }).eq("file_path", file_path).execute()
+            }).eq("id", record_id).execute()
 
 @app.post("/api/extract_async")
 async def queue_extraction(request: DocumentRequest, background_tasks: BackgroundTasks):
     try:
-        supabase.table("invoice_records").insert({
+        # Insert initial processing record and capture its generated ID
+        insert_response = supabase.table("invoice_records").insert({
             "status": "Processing",
             "file_path": request.file_path,
             "session_id": request.session_id
         }).execute()
 
-        background_tasks.add_task(background_processing, request.raw_text, request.file_path)
+        if not insert_response.data:
+            raise HTTPException(status_code=500, detail="Failed to initialize database record.")
+        
+        record_id = insert_response.data[0]["id"]
+
+        # Pass the exact record ID to the background worker
+        background_tasks.add_task(background_processing, request.raw_text, record_id)
         
         return {"status": "success", "message": "Extraction queued"}
     except Exception as e:
