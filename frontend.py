@@ -139,7 +139,10 @@ with tab1:
                     supabase.storage.from_(STORAGE_BUCKET).upload(
                         file_name,
                         tmp_path,
-                        file_options={"content-type": "application/pdf"},
+                        file_options={
+                            "content-type": "application/pdf",
+                            "upsert": "true"
+                            },
                     )
                 except Exception as e:
                     st.error(f"Failed to upload {uploaded_file.name} to storage: {e}")
@@ -162,7 +165,9 @@ with tab1:
                         }
 
                         response = requests.post(f"{BACKEND_URL}/api/extract_async", json=payload, timeout=120)
-                        response.raise_for_status()
+                        if response.status_code != 200:
+                            st.error(f"Backend strictly rejected the payload. Exact reason: {response.text}")
+                            continue
                     
                     except Exception as e:
                         st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
