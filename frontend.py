@@ -122,15 +122,17 @@ with tab1:
     if uploaded_files and len(uploaded_files) > 15:
         st.error("Batch limit exceeded. Please upload a maximum of 15 invoices at a time.")
     elif uploaded_files:
-        if st.button("Process Batch in Background",width="stretch"):
+        if st.button("Process Batch in Background", width="stretch"):
             st.info("Initiating asynchronous swarm. You may leave this page once the batch finishes queuing.")
             progress_bar = st.progress(0)
 
             for i, uploaded_file in enumerate(uploaded_files):
                 file_name = f"{st.session_state.session_id}_{uploaded_file.name}"
-
                 file_bytes = uploaded_file.getbuffer().tobytes()
                 tmp_path = None
+                upload_success = True
+                
+                # 1. Safe Upload Block
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                         tmp.write(file_bytes)
@@ -142,42 +144,49 @@ with tab1:
                         file_options={
                             "content-type": "application/pdf",
                             "upsert": "true"
-                            },
+                        },
                     )
                 except Exception as e:
                     st.error(f"Failed to upload {uploaded_file.name} to storage: {e}")
-                    continue
+                    upload_success = False
                 finally:
+                    # Cleanup only
                     if tmp_path and os.path.exists(tmp_path):
                         os.remove(tmp_path)
 
-                    try:
-                        uploaded_file.seek(0)
-                        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-                        extracted_text = ""
-                        for page in pdf_reader.pages:
-                            extracted_text += page.extract_text()
-                    
-                        payload = {
-                            "raw_text": extracted_text, 
-                            "file_path": file_name,
-                            "session_id": st.session_state.session_id
-                        }
+                # Skip to next file if upload failed
+                if not upload_success:
+                    continue
 
-                        response = requests.post(f"{BACKEND_URL}/api/extract_async", json=payload, timeout=120)
-                        if response.status_code != 200:
-                            st.error(f"Backend strictly rejected the payload. Exact reason: {response.text}")
-                            continue
-                    
-                    except Exception as e:
-                        st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
+                # 2. Safe Extraction and Queue Block
+                try:
+                    uploaded_file.seek(0)
+                    pdf_reader = PyPDF2.PdfReader(uploaded_file)
+                    extracted_text = ""
+                    for page in pdf_reader.pages:
+                        extracted_text += page.extract_text()
+                
+                    payload = {
+                        "raw_text": extracted_text, 
+                        "file_path": file_name,
+                        "session_id": st.session_state.session_id
+                    }
 
-            progress_bar.progress((i + 1) / len(uploaded_files))
+                    response = requests.post(f"{BACKEND_URL}/api/extract_async", json=payload, timeout=120)
+                    if response.status_code != 200:
+                        st.error(f"Backend strictly rejected the payload. Exact reason: {response.text}")
+                        continue
+                
+                except Exception as e:
+                    st.error(f"Failed to queue {uploaded_file.name}. Reason: {e}")
 
-            st.success("Batch successfully pushed to the asynchronous queue.")
+                # Update progress bar smoothly per file
+                progress_bar.progress((i + 1) / len(uploaded_files))
+
+            st.success("Batch successfully pushed to the asynchronous queue. Sentinel is now extracting the data.")
+            time.sleep(2)
             st.session_state.uploader_key = str(time.time())
             st.rerun()
-
 with tab2:
     df_flagged = pd.DataFrame(columns=["id", "audit_reason", "raw_data", "file_path"])
     fetch_error = None
