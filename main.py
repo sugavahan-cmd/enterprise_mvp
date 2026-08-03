@@ -72,8 +72,7 @@ async def queue_extraction(request: DocumentRequest, background_tasks: Backgroun
         supabase.table("invoice_records").insert({
             "status": "Processing",
             "file_path": request.file_path,
-            "session_id": request.session_id,
-            "user_id": request.user_id
+            "session_id": request.session_id
         }).execute()
 
         background_tasks.add_task(background_processing, request.raw_text, request.file_path)
