@@ -207,4 +207,6 @@ def process_document_text(raw_text: str) -> dict:
     except (json.JSONDecodeError, ValueError) as e:
         return {"status": "error", "message": f"Data Parsing Error: {str(e)}"}
     except ValidationError as e:
+        return {"status": "error", "message": f"Validation Error: {str(e)}"}
+    except Exception as e:
         return {"status": "error", "message": f"System Error: {str(e)}"}
