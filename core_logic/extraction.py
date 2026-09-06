@@ -5,6 +5,7 @@ import time
 from dotenv import load_dotenv
 from typing import Optional
 from pydantic import BaseModel, ValidationError
+import re
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -26,7 +27,7 @@ def call_primary_llm(prompt: str) -> str:
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.1-8b-instant",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0
     }
@@ -106,6 +107,16 @@ def call_llm(prompt: str) -> str:
             
     raise Exception("Max retries exceeded. API rate limit exhausted or network failure.")
 
+
+def extract_clean_json(raw_response: str) -> str:
+    cleaned = re.sub(r'```(?:json)?', '', raw_response).strip()
+    start_idx = cleaned.find('{')
+    end_idx = cleaned.rfind('}')
+    
+    if start_idx != -1 and end_idx != -1:
+        return cleaned[start_idx:end_idx+1]
+    raise ValueError(f"No JSON brackets found in LLM response: {raw_response[:50]}...")
+
 def process_document_text(raw_text: str) -> dict:
     if not raw_text.strip():
         return {"status": "error", "message": "No readable text found."}
@@ -135,7 +146,8 @@ def process_document_text(raw_text: str) -> dict:
 
     try:
         extracted_data_str = call_llm(extractor_prompt)
-        extracted_json = json.loads(extracted_data_str)
+        clean_ext_str = extract_clean_json(extracted_data_str)
+        extracted_json = json.loads(clean_ext_str)
 
         auditor_prompt = f"""
         You are a Data Auditor Agent. You are NOT extracting data — you are verifying
@@ -177,7 +189,8 @@ def process_document_text(raw_text: str) -> dict:
         """
 
         audit_result_str = call_llm(auditor_prompt)
-        audit_json = json.loads(audit_result_str)
+        clean_aud_str = extract_clean_json(audit_result_str)
+        audit_json = json.loads(clean_aud_str)
 
         if audit_json.get("is_valid"):
             validated_invoice = InvoiceSchema(**extracted_json)
@@ -191,7 +204,7 @@ def process_document_text(raw_text: str) -> dict:
                 "raw_extraction": extracted_json
             }
 
+    except (json.JSONDecodeError, ValueError) as e:
+        return {"status": "error", "message": f"Data Parsing Error: {str(e)}"}
     except ValidationError as e:
-        return {"status": "error", "message": f"Validation Error: {str(e)}"}
-    except Exception as e:
         return {"status": "error", "message": f"System Error: {str(e)}"}
