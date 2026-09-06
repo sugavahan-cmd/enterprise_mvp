@@ -2,7 +2,6 @@ import json
 import requests
 import os
 import time
-import threading
 from dotenv import load_dotenv
 from typing import Optional
 from pydantic import BaseModel, ValidationError
@@ -11,8 +10,6 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 SAMBANOVA_API_KEY = os.getenv("SAMBANOVA_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-
-extraction_lock = threading.Lock()
 
 class InvoiceSchema(BaseModel):
     vendor_name: Optional[str] = None
@@ -23,7 +20,7 @@ class InvoiceSchema(BaseModel):
 class RateLimitError(Exception):
     pass
 
-def call_primary_llm(prompt: str, require_json: bool = True) -> str:
+def call_primary_llm(prompt: str) -> str:
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
@@ -31,11 +28,8 @@ def call_primary_llm(prompt: str, require_json: bool = True) -> str:
     payload = {
         "model": "llama3-8b-8192",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0,
+        "temperature": 0.0
     }
-    if require_json:
-        payload["response_format"] = {"type": "json_object"}
-
     response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
     
     if response.status_code == 429:
@@ -44,7 +38,7 @@ def call_primary_llm(prompt: str, require_json: bool = True) -> str:
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-def call_secondary_llm(prompt: str, require_json: bool = True) -> str:
+def call_secondary_llm(prompt: str) -> str:
     headers = {
         "Authorization": f"Bearer {SAMBANOVA_API_KEY}",
         "Content-Type": "application/json"
@@ -54,9 +48,6 @@ def call_secondary_llm(prompt: str, require_json: bool = True) -> str:
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
     }
-    if require_json:
-        payload["response_format"] = {"type": "json_object"}
-
     response = requests.post("https://api.sambanova.ai/v1/chat/completions", headers=headers, json=payload)
     
     if response.status_code == 429:
@@ -65,7 +56,7 @@ def call_secondary_llm(prompt: str, require_json: bool = True) -> str:
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-def call_tertiary_llm(prompt: str, require_json: bool = True) -> str:
+def call_tertiary_llm(prompt: str) -> str:
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
@@ -75,9 +66,6 @@ def call_tertiary_llm(prompt: str, require_json: bool = True) -> str:
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
     }
-    if require_json:
-        payload["response_format"] = {"type": "json_object"}
-
     response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
     
     if response.status_code == 429:
@@ -86,7 +74,7 @@ def call_tertiary_llm(prompt: str, require_json: bool = True) -> str:
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-def call_llm(prompt: str, require_json: bool = True) -> str:
+def call_llm(prompt: str) -> str:
     use_fallback = os.getenv("ENABLE_FALLBACK", "false").lower() == "true"
     print(f"[SENTINEL] Fallback Mode Active: {use_fallback}")
     max_retries = 5
@@ -94,23 +82,20 @@ def call_llm(prompt: str, require_json: bool = True) -> str:
     for attempt in range(max_retries):
         try:
             print(f"[SENTINEL] Routing to Primary (Groq) - Attempt {attempt + 1}")
-            with extraction_lock:
-                return call_primary_llm(prompt, require_json)
+            return call_primary_llm(prompt)
             
-        except RateLimitError as e:
-            print(f"[SENTINEL] 429 Rate Limit hit on Primary: {repr(e)}")
+        except (RateLimitError, requests.exceptions.RequestException) as e:
+            print(f"[SENTINEL] Error or Rate Limit hit on Primary: {repr(e)}")
             
             if use_fallback:
                 try:
                     print("[SENTINEL] Cascading to Secondary (SambaNova)...")
-                    with extraction_lock:
-                        return call_secondary_llm(prompt, require_json)
+                    return call_secondary_llm(prompt)
                 except Exception as e2:
                     print(f"[SENTINEL] Secondary Failed: {repr(e2)}")
                     try:
                         print("[SENTINEL] Cascading to Tertiary (OpenRouter)...")
-                        with extraction_lock:
-                            return call_tertiary_llm(prompt, require_json)
+                        return call_tertiary_llm(prompt)
                     except Exception as e3:
                         print(f"[SENTINEL] Tertiary Failed: {repr(e3)}")
                         
@@ -119,10 +104,7 @@ def call_llm(prompt: str, require_json: bool = True) -> str:
             time.sleep(wait_time)
             continue
             
-        except Exception as e:
-            raise e
-            
-    raise Exception("Max retries exceeded. API rate limit exhausted.")
+    raise Exception("Max retries exceeded. API rate limit exhausted or network failure.")
 
 def process_document_text(raw_text: str) -> dict:
     if not raw_text.strip():
@@ -152,7 +134,7 @@ def process_document_text(raw_text: str) -> dict:
         """
 
     try:
-        extracted_data_str = call_llm(extractor_prompt, require_json=True)
+        extracted_data_str = call_llm(extractor_prompt)
         extracted_json = json.loads(extracted_data_str)
 
         auditor_prompt = f"""
@@ -194,7 +176,7 @@ def process_document_text(raw_text: str) -> dict:
         "is_valid" (boolean) and "reason" (a short string explaining the decision).
         """
 
-        audit_result_str = call_llm(auditor_prompt, require_json=True)
+        audit_result_str = call_llm(auditor_prompt)
         audit_json = json.loads(audit_result_str)
 
         if audit_json.get("is_valid"):
